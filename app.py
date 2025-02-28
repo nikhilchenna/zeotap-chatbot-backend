@@ -8,6 +8,10 @@ import os
 from flask_caching import Cache
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
+
+# Load environment variables (for local development)
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -28,6 +32,7 @@ limiter = Limiter(
 
 # Load Sentence Transformer model
 model_name = os.getenv("MODEL_NAME", "all-MiniLM-L6-v2")
+logger.info(f"Loading model: {model_name}")
 model = SentenceTransformer(model_name)
 
 # Documents and FAISS index
@@ -38,9 +43,10 @@ documents = [
     "Zeotap is a customer intelligence platform that provides actionable insights."
 ]
 
-index = faiss.IndexFlatL2(384)  # Assuming 384-dim embeddings
+# Create FAISS index (384-dim for MiniLM)
+index = faiss.IndexFlatL2(384)
 doc_embeddings = model.encode(documents)
-index.add(np.array(doc_embeddings))
+index.add(np.array(doc_embeddings, dtype=np.float32))  # Ensure float32
 
 # Define greetings
 greetings = {"hi", "hello", "hey", "good morning", "good evening", "good afternoon"}
@@ -49,7 +55,8 @@ def search(query, k=3, threshold=1.0):
     """Finds relevant documents based on query"""
     try:
         query_embedding = model.encode([query])
-        distances, index_results = index.search(np.array(query_embedding), k=k)
+        query_embedding = np.array(query_embedding, dtype=np.float32)  # Convert to float32
+        distances, index_results = index.search(query_embedding, k=k)
 
         results = []
         for i, distance in zip(index_results[0], distances[0]):
@@ -81,7 +88,7 @@ def chat():
             return jsonify({"error": "Invalid request. 'message' field is required."}), 400
 
         user_message = data["message"].strip().lower()
-        
+
         # Check for greetings
         if user_message in greetings:
             return jsonify({"response": "Hello! How can I assist you with Segment, mParticle, Lytics, or Zeotap?"})
@@ -100,4 +107,5 @@ def chat():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))  
+    logger.info(f"Starting Flask server on port {port}")
     app.run(host="0.0.0.0", port=port)
